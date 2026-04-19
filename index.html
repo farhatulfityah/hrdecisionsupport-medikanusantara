@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>HR AI Decision Interface</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="bg-gray-50">
+
+<div class="bg-[#00A19B] text-white p-4 text-lg font-semibold">
+HR Decision Support — Medika Nusantara
+</div>
+
+<div class="max-w-5xl mx-auto p-6">
+
+<!-- CONTROLS -->
+<div class="bg-white p-4 rounded-xl shadow mb-4">
+
+<div class="flex justify-between items-center">
+
+<select id="employeeSelect" class="border px-3 py-2 rounded"></select>
+
+<div class="flex gap-2">
+<button id="cleanBtn" class="px-4 py-2 rounded bg-[#00A19B] text-white">Clean Data</button>
+<button id="messyBtn" class="px-4 py-2 rounded bg-gray-200">Messy Data</button>
+</div>
+
+</div>
+
+
+
+</div>
+
+<!-- WARNING -->
+<div id="warning" class="hidden bg-yellow-100 text-yellow-800 p-4 rounded mb-4">
+⚠️ Data incomplete & inconsistent → confidence reduced, human review required
+</div>
+
+<!-- MAIN -->
+<div class="bg-white p-6 rounded-xl shadow mb-6">
+
+<h2 id="name" class="text-xl font-bold"></h2>
+<p id="meta" class="text-gray-500 mb-4"></p>
+
+<div class="flex justify-between items-center">
+
+<div>
+<div id="risk" class="text-2xl font-bold"></div>
+<p class="text-sm text-gray-500">Probability of attrition in next 6 months</p>
+</div>
+
+<div id="confidence" class="px-3 py-1 rounded-full text-sm"></div>
+
+</div>
+
+<h3 class="mt-6 font-semibold">Top Drivers</h3>
+<ul id="drivers" class="list-disc ml-5 text-gray-700"></ul>
+
+<h3 class="mt-6 font-semibold">Why this confidence level?</h3>
+<p id="uncertainty" class="text-gray-600"></p>
+
+<div class="mt-6 flex gap-3">
+<button class="bg-[#00A19B] text-white px-4 py-2 rounded">Retention Program</button>
+<button class="bg-[#00A19B] text-white px-4 py-2 rounded">1:1 Meeting</button>
+<button id="actionBtn" class="bg-black text-white px-4 py-2 rounded"></button>
+</div>
+
+</div>
+
+<!-- RECOMMENDATION -->
+<div class="bg-white p-6 rounded-xl shadow">
+
+<h3 class="font-semibold mb-2">Career Recommendation</h3>
+<p id="recommendation"></p>
+<p id="reason" class="text-gray-600 mt-2"></p>
+
+</div>
+
+</div>
+
+
+
+<script>
+
+Math.random = (function() {
+    let seed = 42;
+    return function() {
+      seed = (seed * 16807) % 2147483647;
+      return (seed - 1) / 2147483646;
+    };
+  })();
+  
+// ===== ROLE STRUCTURE =====
+const jobFamilies = {
+  Clinical: ["Doctor","Nurse","Pharmacist","Lab Technician"],
+  HR: ["HR Generalist","Talent Acquisition","HR Business Partner"],
+  Finance: ["Accountant","Financial Analyst","Payroll Specialist"],
+  Sales: ["Sales Executive","Account Manager","Business Development"],
+  Marketing: ["Marketing Specialist","Growth Analyst","Product Marketing"],
+  Data: ["Data Analyst","Data Scientist","BI Analyst"],
+  Engineering: ["Software Engineer","Backend Engineer","Frontend Engineer"],
+  Operations: ["Operations Specialist","Customer Support","Admin Officer"]
+};
+
+const locations = ["Jakarta","Bandung","Surabaya","Singapore"];
+
+function random(arr){
+  return arr[Math.floor(Math.random()*arr.length)];
+}
+
+function getLevel(dept){
+  if(dept === "Clinical"){
+    return random(["General","Specialist","Consultant"]);
+  }
+  return random(["Junior","Mid","Senior","Lead"]);
+}
+
+
+// ===== GENERATE DATA =====
+function generateEmployees(n=200){
+  let data=[];
+
+  for(let i=0;i<n;i++){
+
+    let dept = random(Object.keys(jobFamilies));
+    let baseRole = random(jobFamilies[dept]);
+    let level = getLevel(dept);
+    let location = random(locations);
+
+    let isMessy = Math.random()<0.4;
+
+    let role = baseRole; // FIX: no double level
+
+    data.push({
+      id:i,
+      name:"Employee "+i,
+      role: isMessy ? baseRole + " " + location : role,
+      baseRole: baseRole,
+      dept: dept,
+      level: level,
+      location: location,
+      tenure:(Math.random()*6).toFixed(1)+" yrs",
+      promo:Math.random()<0.5?"N/A":Math.floor(Math.random()*4)+" yrs ago",
+      risk:Math.floor(Math.random()*40)+50,
+      skills:isMessy && Math.random()<0.4 ? null : ["Skill"],
+      performance:isMessy && Math.random()<0.3 ? null : "Good",
+      conflict:isMessy && Math.random()<0.2
+    });
+  }
+
+  return data;
+}
+
+const messyData = generateEmployees(200);
+
+
+// ===== CLEANING =====
+function cleanData(data){
+  return data.map(emp=>{
+
+    let normalizedRole = emp.baseRole;
+
+    let finalRole =
+      emp.dept === "Clinical"
+      ? `${normalizedRole} (${emp.level})`
+      : `${emp.level} ${normalizedRole}`;
+
+    let confidence = 1;
+    if(!emp.skills) confidence -= 0.3;
+    if(!emp.performance) confidence -= 0.2;
+    if(emp.conflict) confidence -= 0.3;
+
+    return {
+      ...emp,
+      role: finalRole,
+      confidence: Math.round(confidence*100),
+      flag: confidence < 0.5
+    };
+  });
+}
+
+const cleanDataSet = cleanData(messyData);
+// ===== DEFAULT EMPLOYEE (HIGH CONFIDENCE) =====
+let currentIndex = cleanDataSet.findIndex(e => e.confidence >= 80);
+
+// fallback kalau tidak ketemu
+if(currentIndex === -1) currentIndex = 0;
+
+
+// ===== STATE =====
+let mode="clean";
+
+
+const select=document.getElementById("employeeSelect");
+
+
+// ===== INIT DROPDOWN =====
+function initDropdown(){
+  messyData.forEach((e,i)=>{
+    let opt=document.createElement("option");
+    opt.value=i;
+    opt.text=e.name;
+    select.appendChild(opt);
+  });
+}
+
+
+// ===== UI UPDATE =====
+function updateUI(){
+
+const dataset = mode==="clean" ? cleanDataSet : messyData;
+const emp = dataset[currentIndex];
+
+document.getElementById("name").innerText=emp.name;
+
+document.getElementById("meta").innerText=
+`${emp.role} • ${emp.dept} Dept • ${emp.location} • ${emp.tenure} • Last promo: ${emp.promo}`;
+
+// ===== RISK =====
+let riskColor = emp.risk>75 ? "text-red-600"
+              : emp.risk>50 ? "text-yellow-600"
+              : "text-green-600";
+
+document.getElementById("risk").className=`text-2xl font-bold ${riskColor}`;
+document.getElementById("risk").innerText=
+`${emp.risk}% (${emp.risk>75?"High":"Medium"} Risk)`;
+
+
+// ===== CONFIDENCE =====
+let conf = mode==="clean" ? emp.confidence : 50;
+
+let confColor = conf>80 ? "bg-green-100 text-green-700"
+              : conf>60 ? "bg-yellow-100 text-yellow-700"
+              : "bg-red-100 text-red-700";
+
+document.getElementById("confidence").className=
+`px-3 py-1 rounded-full ${confColor}`;
+
+document.getElementById("confidence").innerText=
+`Confidence: ${conf}%`;
+
+
+// ===== WARNING LOGIC (FIXED) =====
+let showWarning;
+
+if(mode==="messy"){
+  showWarning = true; // messy always warning
+} else {
+  showWarning = emp.flag === true; // clean only if low confidence
+}
+
+document.getElementById("warning").classList.toggle(
+  "hidden", !showWarning
+);
+
+
+// ===== DRIVERS =====
+let drivers=document.getElementById("drivers");
+drivers.innerHTML="";
+["Low satisfaction","High overtime"].forEach(d=>{
+  let li=document.createElement("li");
+  li.innerText=d;
+  drivers.appendChild(li);
+});
+
+
+// ===== UNCERTAINTY TEXT =====
+document.getElementById("uncertainty").innerText=
+mode==="clean"
+? (emp.flag
+    ? "Some fields inferred or incomplete → human review recommended"
+    : "Data normalized and complete → high reliability")
+: "Missing skills, inconsistent roles, possible duplicate records";
+
+
+// ===== RECOMMENDATION =====
+let rec,reason,action;
+
+if(emp.risk>75){
+  rec="Retention or role change recommended";
+  reason="High attrition probability";
+
+  if(mode==="clean"){
+    action = emp.flag ? "Review Required" : "Take Action";
+  } else {
+    action = "Review Required";
+  }
+
+}else{
+  rec="Maintain current role";
+  reason="Moderate risk";
+  action="Monitor";
+}
+
+document.getElementById("recommendation").innerText=rec;
+document.getElementById("reason").innerText=reason;
+document.getElementById("actionBtn").innerText=action;
+
+
+// ===== TOGGLE STYLE =====
+if(mode==="clean"){
+  cleanBtn.className="px-4 py-2 rounded bg-[#00A19B] text-white";
+  messyBtn.className="px-4 py-2 rounded bg-gray-200";
+}else{
+  messyBtn.className="px-4 py-2 rounded bg-[#00A19B] text-white";
+  cleanBtn.className="px-4 py-2 rounded bg-gray-200";
+}
+}
+
+
+// ===== CSV EXPORT =====
+function convertToCSV(data){
+
+  const headers = [
+    "id","name","role","dept","level","location",
+    "tenure","promo","risk","skills","performance","confidence"
+  ];
+
+  const rows = data.map(obj =>
+    headers.map(field => `"${(obj[field] ?? "")}"`).join(",")
+  );
+
+  return [headers.join(","), ...rows].join("\n");
+}
+
+function downloadCSV(type){
+
+  let dataset = type === "clean" ? cleanDataSet : messyData;
+
+  const csv = convertToCSV(dataset);
+
+  const blob = new Blob([csv], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = type + "_dataset.csv";
+  a.click();
+
+  URL.revokeObjectURL(url);
+}
+
+
+// ===== EVENTS =====
+select.addEventListener("change",(e)=>{
+  currentIndex=e.target.value;
+  updateUI();
+});
+
+cleanBtn.onclick=()=>{
+  mode="clean";
+  updateUI();
+};
+
+messyBtn.onclick=()=>{
+  mode="messy";
+  updateUI();
+};
+
+
+// ===== INIT =====
+initDropdown();
+updateUI();
+
+</script>
+
+</body>
+</html>
